@@ -1,0 +1,17 @@
+{
+  "name": "FitTrack Free",
+  "short_name": "FitTrack",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0b1120",
+  "theme_color": "#101827",
+  "description": "Diario gratuito de nutrición, macros, peso, agua, ayuno y recetas.",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

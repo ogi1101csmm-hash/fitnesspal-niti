@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#101827" />
+  <title>FitTrack Free</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">FITNESS & NUTRICIÓN</div>
+      <h1>FitTrack Free</h1>
+    </div>
+    <button id="installBtn" class="ghost hidden">Instalar</button>
+  </header>
+
+  <main>
+    <section id="dashboard" class="view active">
+      <div class="hero card">
+        <div>
+          <div class="muted">Calorías restantes</div>
+          <div class="big" id="remainingCalories">0</div>
+          <div class="muted" id="calorieFormula">Objetivo 0 − comida 0 + ejercicio 0</div>
+        </div>
+        <div class="ring" id="calorieRing"><span id="caloriePct">0%</span></div>
+      </div>
+
+      <div class="grid3">
+        <div class="card stat"><b id="proteinNow">0 g</b><span>Proteína</span></div>
+        <div class="card stat"><b id="carbsNow">0 g</b><span>Carbohidratos</span></div>
+        <div class="card stat"><b id="fatNow">0 g</b><span>Grasas</span></div>
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <h2>Hoy</h2><span id="todayLabel"></span>
+        </div>
+        <div id="mealSummary"></div>
+      </div>
+
+      <div class="card">
+        <div class="section-head"><h2>Agua</h2><span id="waterLabel">0 / 2000 ml</span></div>
+        <div class="progress"><i id="waterBar"></i></div>
+        <div class="row gap">
+          <button class="secondary" data-water="250">+250 ml</button>
+          <button class="secondary" data-water="500">+500 ml</button>
+          <button class="ghost" id="resetWater">Reiniciar</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-head"><h2>Ayuno</h2><span id="fastingStatus">Sin iniciar</span></div>
+        <div class="big small" id="fastingClock">00:00:00</div>
+        <div class="row gap">
+          <button id="fastingBtn">Iniciar ayuno</button>
+          <select id="fastingGoal">
+            <option value="12">12:12</option>
+            <option value="14">14:10</option>
+            <option value="16" selected>16:8</option>
+            <option value="18">18:6</option>
+            <option value="20">20:4</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <section id="diary" class="view">
+      <div class="section-head">
+        <h2>Diario</h2>
+        <input type="date" id="diaryDate" />
+      </div>
+      <div id="diaryMeals"></div>
+      <button class="fab" id="addFoodFab">＋</button>
+    </section>
+
+    <section id="scanner" class="view">
+      <div class="card">
+        <h2>Escáner de código de barras</h2>
+        <p class="muted">Usa la cámara si tu navegador soporta BarcodeDetector. También puedes escribir el EAN manualmente.</p>
+        <video id="camera" playsinline muted></video>
+        <div class="row gap">
+          <button id="startScanner">Abrir cámara</button>
+          <button class="ghost" id="stopScanner">Cerrar</button>
+        </div>
+        <div class="row gap">
+          <input id="barcodeInput" placeholder="EAN / UPC" inputmode="numeric" />
+          <button id="lookupBarcode">Buscar</button>
+        </div>
+        <div id="barcodeResult"></div>
+      </div>
+    </section>
+
+    <section id="progressView" class="view">
+      <div class="card">
+        <div class="section-head"><h2>Peso</h2><button id="addWeight">Añadir</button></div>
+        <canvas id="weightChart" width="800" height="360"></canvas>
+        <div id="weightList"></div>
+      </div>
+      <div class="card">
+        <h2>Resumen nutricional 7 días</h2>
+        <canvas id="calorieChart" width="800" height="360"></canvas>
+      </div>
+    </section>
+
+    <section id="recipes" class="view">
+      <div class="section-head"><h2>Recetas</h2><button id="newRecipe">Nueva</button></div>
+      <div id="recipeList"></div>
+    </section>
+
+    <section id="settings" class="view">
+      <div class="card">
+        <h2>Objetivos</h2>
+        <label>Calorías diarias <input id="goalCalories" type="number" /></label>
+        <label>Proteína (g) <input id="goalProtein" type="number" /></label>
+        <label>Carbohidratos (g) <input id="goalCarbs" type="number" /></label>
+        <label>Grasas (g) <input id="goalFat" type="number" /></label>
+        <label>Agua (ml) <input id="goalWater" type="number" /></label>
+        <button id="saveGoals">Guardar objetivos</button>
+      </div>
+
+      <div class="card">
+        <h2>Perfil</h2>
+        <label>Nombre <input id="profileName" /></label>
+        <label>Altura (cm) <input id="profileHeight" type="number" /></label>
+        <label>Peso actual (kg) <input id="profileWeight" type="number" step="0.1" /></label>
+        <label>Peso objetivo (kg) <input id="profileTarget" type="number" step="0.1" /></label>
+        <button id="saveProfile">Guardar perfil</button>
+      </div>
+
+      <div class="card">
+        <h2>Datos</h2>
+        <div class="row wrap gap">
+          <button id="exportData">Exportar JSON</button>
+          <label class="buttonLike secondary">Importar JSON<input id="importData" type="file" accept=".json" hidden /></label>
+          <button class="danger" id="wipeData">Borrar datos</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="bottomnav">
+    <button data-view="dashboard" class="active">Inicio</button>
+    <button data-view="diary">Diario</button>
+    <button data-view="scanner">Escáner</button>
+    <button data-view="progressView">Progreso</button>
+    <button data-view="recipes">Recetas</button>
+    <button data-view="settings">Ajustes</button>
+  </nav>
+
+  <dialog id="foodDialog">
+    <form method="dialog" id="foodForm">
+      <h2>Añadir alimento</h2>
+      <label>Comida
+        <select id="foodMeal">
+          <option>Desayuno</option><option>Comida</option><option>Cena</option><option>Snacks</option>
+        </select>
+      </label>
+      <label>Nombre <input id="foodName" required /></label>
+      <div class="grid2">
+        <label>Cantidad <input id="foodQty" type="number" step="0.1" value="100" required /></label>
+        <label>Unidad
+          <select id="foodUnit"><option value="g">g</option><option value="ml">ml</option><option value="ud">ud</option></select>
+        </label>
+      </div>
+      <p class="muted">Valores nutricionales para la cantidad indicada.</p>
+      <div class="grid2">
+        <label>Calorías <input id="foodCalories" type="number" step="0.1" required /></label>
+        <label>Proteína (g) <input id="foodProtein" type="number" step="0.1" value="0" /></label>
+        <label>Carbohidratos (g) <input id="foodCarbs" type="number" step="0.1" value="0" /></label>
+        <label>Grasas (g) <input id="foodFat" type="number" step="0.1" value="0" /></label>
+      </div>
+      <div class="dialog-actions">
+        <button value="cancel" class="ghost">Cancelar</button>
+        <button id="saveFood" value="default">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="recipeDialog">
+    <form method="dialog" id="recipeForm">
+      <h2>Nueva receta</h2>
+      <label>Nombre <input id="recipeName" required /></label>
+      <label>Raciones <input id="recipeServings" type="number" min="1" value="2" /></label>
+      <label>Ingredientes
+        <textarea id="recipeIngredients" rows="7" placeholder="Ej.: 200 g arroz&#10;150 g pollo&#10;10 ml aceite"></textarea>
+      </label>
+      <div class="grid2">
+        <label>Calorías totales <input id="recipeCalories" type="number" /></label>
+        <label>Proteína total (g) <input id="recipeProtein" type="number" /></label>
+        <label>Carbohidratos totales (g) <input id="recipeCarbs" type="number" /></label>
+        <label>Grasas totales (g) <input id="recipeFat" type="number" /></label>
+      </div>
+      <div class="dialog-actions">
+        <button value="cancel" class="ghost">Cancelar</button>
+        <button id="saveRecipe" value="default">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
