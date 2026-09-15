@@ -30,7 +30,17 @@ PWA gratuita de nutrición y fitness, pensada para desplegarse directamente en G
 Abre la URL publicada en Safari y usa **Compartir > Añadir a pantalla de inicio**.
 
 ## Notas
-- El lector por cámara depende del soporte del navegador. En iPhone puede ser necesario introducir el código manualmente.
+- El lector por cámara usa html5-qrcode, compatible con Safari/iPhone mediante acceso estándar a la cámara.
 - Los productos por código de barras dependen de Open Food Facts y pueden no existir o contener datos incompletos.
 - Esta aplicación no sustituye asesoramiento médico o dietético profesional.
 - No está afiliada con MyFitnessPal ni utiliza su código, marca o contenido propietario.
+
+
+## Cambio v3 - cantidades y macros
+Los alimentos obtenidos por código de barras conservan sus valores nutricionales de referencia por 100 g.
+Al modificar la cantidad, la aplicación recalcula automáticamente calorías, proteínas, carbohidratos y grasas.
+
+Ejemplo:
+- Referencia por 100 g: 250 kcal, 20 g proteína, 30 g carbohidratos, 8 g grasa.
+- Cantidad introducida: 60 g.
+- Resultado: 150 kcal, 12 g proteína, 18 g carbohidratos, 4.8 g grasa.
