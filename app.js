@@ -206,70 +206,48 @@ function normalizeBarcode(raw){
   return code;
 }
 
-function isValidBarcode(code){
-  const raw=normalizeBarcode(code);
+function validEanOrUpc(raw){
+  const code=normalizeBarcode(raw);
 
-  // EAN-13
-  if(raw.length===13){
+  if(code.length===13){
     let sum=0;
     for(let i=0;i<12;i++){
-      sum += Number(raw[i]) * (i%2===0 ? 1 : 3);
+      sum += Number(code[i]) * (i%2===0 ? 1 : 3);
     }
-    return ((10-(sum%10))%10)===Number(raw[12]);
+    return ((10-(sum%10))%10)===Number(code[12]);
   }
 
-  // EAN-8
-  if(raw.length===8){
+  if(code.length===8){
     let sum=0;
     for(let i=0;i<7;i++){
-      sum += Number(raw[i]) * (i%2===0 ? 3 : 1);
+      sum += Number(code[i]) * (i%2===0 ? 3 : 1);
     }
-    return ((10-(sum%10))%10)===Number(raw[7]);
+    return ((10-(sum%10))%10)===Number(code[7]);
   }
 
-  // UPC-A: validar como EAN-13 anteponiendo 0
-  if(raw.length===12){
-    return isValidBarcode("0"+raw);
+  if(code.length===12){
+    return validEanOrUpc("0"+code);
   }
 
   return false;
 }
 
-let scanVotes=new Map();
-let scanLocked=false;
+let scanHistory=[];
+let scanAccepted=false;
 
-function voteBarcode(raw){
-  if(scanLocked) return null;
-
+function confirmRepeatedBarcode(raw){
   const code=normalizeBarcode(raw);
-  if(!isValidBarcode(code)) return null;
+  if(!validEanOrUpc(code)) return null;
 
   const now=Date.now();
-  const item=scanVotes.get(code) || {count:0,last:now};
-  item.count++;
-  item.last=now;
-  scanVotes.set(code,item);
+  scanHistory=scanHistory.filter(x=>now-x.time<1800);
+  scanHistory.push({code,time:now});
 
-  // Olvidar lecturas antiguas.
-  for(const [k,v] of scanVotes){
-    if(now-v.last>1800) scanVotes.delete(k);
-  }
+  const same=scanHistory.filter(x=>x.code===code).length;
 
-  const active=[...scanVotes.entries()]
-    .filter(([,v])=>now-v.last<=1400)
-    .sort((a,b)=>b[1].count-a[1].count);
-
-  if(!active.length) return null;
-
-  const total=active.reduce((acc,[,v])=>acc+v.count,0);
-  const [bestCode,bestData]=active[0];
-
-  // Exigir varias lecturas coincidentes, pero sin tocar la configuración
-  // de cámara que ya funcionaba correctamente en iPhone.
-  if(bestData.count>=3 && total>=3 && bestData.count/total>=0.67){
-    return bestCode;
-  }
-
+  // La cámara de la v5 sí funcionaba en iPhone.
+  // Solo añadimos esta validación posterior: 3 lecturas iguales y EAN válido.
+  if(same>=3) return code;
   return null;
 }
 
@@ -282,36 +260,33 @@ startScanner.onclick=async()=>{
 
     if(html5QrCode){await stopCamera();}
 
-    scanVotes=new Map();
-    scanLocked=false;
+    scanHistory=[];
+    scanAccepted=false;
     barcodeInput.value="";
-    barcodeResult.innerHTML='<div class="result">Apunta al código de barras y mantenlo quieto un instante…</div>';
+    barcodeResult.innerHTML='<div class="result">Cámara iniciada. Mantén el código centrado un instante.</div>';
 
-    // IMPORTANTE:
-    // Esta es la configuración de cámara de la v6, que sí abría correctamente
-    // en iPhone. No añadimos constraints avanzados al iniciar.
+    // IMPORTANTE: configuración idéntica a la v5,
+    // que fue la versión que sí abrió correctamente la cámara en tu iPhone.
     html5QrCode=new Html5Qrcode("reader");
-
     const config={
-      fps:20,
-      qrbox:(viewfinderWidth,viewfinderHeight)=>{
-        const width=Math.floor(viewfinderWidth*0.92);
-        const height=Math.max(120,Math.floor(viewfinderHeight*0.36));
-        return {width,height};
-      },
-      aspectRatio:1.7778,
-      disableFlip:true,
-      experimentalFeatures:{useBarCodeDetectorIfSupported:false}
+      fps:10,
+      qrbox:{width:280,height:160},
+      aspectRatio:1.7778
     };
 
     await html5QrCode.start(
       {facingMode:"environment"},
       config,
-      async(decodedText)=>{
-        const confirmed=voteBarcode(decodedText);
-        if(!confirmed || scanLocked) return;
+      async decodedText=>{
+        if(scanAccepted) return;
 
-        scanLocked=true;
+        const confirmed=confirmRepeatedBarcode(decodedText);
+
+        if(!confirmed){
+          return;
+        }
+
+        scanAccepted=true;
         barcodeInput.value=confirmed;
         barcodeResult.innerHTML=`<div class="result"><b>Código confirmado:</b> ${confirmed}<br><span class="muted">Buscando producto…</span></div>`;
 
@@ -325,25 +300,11 @@ startScanner.onclick=async()=>{
       ()=>{}
     );
 
-    // Solo después de arrancar, intentar enfoque continuo si existe.
-    // Si iOS no lo soporta, se ignora sin romper el lector.
-    setTimeout(async()=>{
-      try{
-        if(!html5QrCode || !html5QrCode.isScanning)return;
-        const caps=html5QrCode.getRunningTrackCapabilities?.();
-        if(caps?.focusMode?.includes?.("continuous")){
-          await html5QrCode.applyVideoConstraints({
-            advanced:[{focusMode:"continuous"}]
-          });
-        }
-      }catch(e){
-        console.debug("Enfoque continuo no disponible",e);
-      }
-    },800);
-
   }catch(e){
-    console.error("Error al iniciar escáner:",e);
-    alert("No se pudo iniciar el escáner. Cierra la cámara, recarga la página y vuelve a intentarlo.");
+    console.error("Error real del escáner:",e);
+    const msg=(e && (e.message || e.name)) ? `${e.name||""} ${e.message||""}`.trim() : String(e);
+    barcodeResult.innerHTML=`<div class="result"><b>No se pudo iniciar la cámara.</b><br><span class="muted">${esc(msg)}</span></div>`;
+    alert("No se pudo iniciar la cámara. El detalle del error aparece debajo del buscador.");
   }
 };
 
@@ -351,18 +312,8 @@ stopScanner.onclick=stopCamera;
 
 async function stopCamera(){
   if(html5QrCode){
-    try{
-      if(html5QrCode.isScanning) await html5QrCode.stop();
-    }catch(e){
-      console.debug("Error al detener cámara",e);
-    }
-
-    try{
-      await html5QrCode.clear();
-    }catch(e){
-      console.debug("Error al limpiar lector",e);
-    }
-
+    try{if(html5QrCode.isScanning)await html5QrCode.stop()}catch{}
+    try{await html5QrCode.clear()}catch{}
     html5QrCode=null;
   }
 }

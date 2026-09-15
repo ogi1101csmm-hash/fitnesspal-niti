@@ -65,3 +65,11 @@ La validación anti-falsos-positivos se realiza después de la detección y no m
 - Se valida el dígito de control EAN-13, EAN-8 y UPC-A.
 - Se requieren 3 lecturas válidas coincidentes antes de aceptar un código.
 - El enfoque continuo se intenta únicamente después de que la cámara ya esté funcionando.
+
+
+## Cambio v9
+- Se restaura exactamente la configuración de cámara de la v5, que sí abrió correctamente en iPhone.
+- La validación del EAN se realiza únicamente después de que la cámara haya arrancado.
+- Se requieren 3 lecturas iguales y un dígito de control EAN/UPC válido.
+- `app.js` se carga como `app.js?v=9` para evitar que Safari reutilice JavaScript antiguo.
+- Si el arranque falla, la app muestra el error técnico real debajo del buscador para poder diagnosticarlo.
