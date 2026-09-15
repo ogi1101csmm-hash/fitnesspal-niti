@@ -189,16 +189,16 @@ setInterval(()=>state.fasting.active&&renderFasting(),1000);
 lookupBarcode.onclick=()=>lookupCode(barcodeInput.value.trim());
 async function lookupCode(code){
   if(!code)return;
-  barcodeResult.innerHTML='<div class="result">Buscando…</div>';
+  barcodeResultEl.innerHTML='<div class="result">Buscando…</div>';
   try{
     const res=await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json`);
     const data=await res.json(); if(!data.product)throw new Error("No encontrado");
     const p=data.product,n=p.nutriments||{};
     const kcal=n["energy-kcal_100g"]??n["energy-kcal"]??0;
     const info={name:p.product_name_es||p.product_name||"Producto",qty:100,unit:"g",calories:kcal,protein:n.proteins_100g||0,carbs:n.carbohydrates_100g||0,fat:n.fat_100g||0,per100:true};
-    barcodeResult.innerHTML=`<div class="result"><b>${esc(info.name)}</b><p class="muted">Por 100 g: ${Math.round(info.calories)} kcal · P ${format1(info.protein)} · C ${format1(info.carbs)} · G ${format1(info.fat)}</p><button id="addScanned">Añadir al diario</button></div>`;
+    barcodeResultEl.innerHTML=`<div class="result"><b>${esc(info.name)}</b><p class="muted">Por 100 g: ${Math.round(info.calories)} kcal · P ${format1(info.protein)} · C ${format1(info.carbs)} · G ${format1(info.fat)}</p><button id="addScanned">Añadir al diario</button></div>`;
     addScanned.onclick=()=>openFood(info);
-  }catch(e){barcodeResult.innerHTML='<div class="result">Producto no encontrado. Puedes añadirlo manualmente desde el Diario.</div>'}
+  }catch(e){barcodeResultEl.innerHTML='<div class="result">Producto no encontrado. Puedes añadirlo manualmente desde el Diario.</div>'}
 }
 function normalizeBarcode(raw){
   let code=String(raw||"").replace(/\D/g,"");
@@ -232,23 +232,25 @@ function validEanOrUpc(raw){
   return false;
 }
 
-takeBarcodePhoto.onclick=()=>{
-  barcodePhoto.value="";
-  barcodePhoto.click();
-};
+const barcodePhotoEl=document.getElementById("barcodePhoto");
+const barcodePhotoPreviewEl=document.getElementById("barcodePhotoPreview");
+const photoPreviewWrapEl=document.getElementById("photoPreviewWrap");
+const barcodeResultEl=document.getElementById("barcodeResult");
+const barcodeInputEl=document.getElementById("barcodeInput");
+const lookupBarcodeEl=document.getElementById("lookupBarcode");
 
-barcodePhoto.onchange=async e=>{
+barcodePhotoEl.addEventListener("change",async e=>{
   const file=e.target.files?.[0];
   if(!file) return;
 
   const previewUrl=URL.createObjectURL(file);
-  barcodePhotoPreview.src=previewUrl;
-  photoPreviewWrap.classList.remove("hidden");
+  barcodePhotoPreviewEl.src=previewUrl;
+  photoPreviewWrapEl.classList.remove("hidden");
 
-  barcodeResult.innerHTML='<div class="result">Analizando la foto…</div>';
+  barcodeResultEl.innerHTML='<div class="result">Analizando la foto…</div>';
 
   if(typeof Html5Qrcode==="undefined"){
-    barcodeResult.innerHTML='<div class="result">No se pudo cargar el lector de códigos. Recarga la página con conexión a Internet.</div>';
+    barcodeResultEl.innerHTML='<div class="result">No se pudo cargar el lector de códigos. Recarga la página con conexión a Internet.</div>';
     return;
   }
 
@@ -263,16 +265,16 @@ barcodePhoto.onchange=async e=>{
     const code=normalizeBarcode(decodedText);
 
     if(!validEanOrUpc(code)){
-      barcodeInput.value=code;
-      barcodeResult.innerHTML=`<div class="result">
+      barcodeInputEl.value=code;
+      barcodeResultEl.innerHTML=`<div class="result">
         Se detectó <b>${esc(code||decodedText)}</b>, pero no supera la validación EAN/UPC.
         <br><span class="muted">Haz otra foto más cerca, con el código recto y bien enfocado.</span>
       </div>`;
       return;
     }
 
-    barcodeInput.value=code;
-    barcodeResult.innerHTML=`<div class="result"><b>Código detectado:</b> ${code}<br><span class="muted">Buscando producto…</span></div>`;
+    barcodeInputEl.value=code;
+    barcodeResultEl.innerHTML=`<div class="result"><b>Código detectado:</b> ${code}<br><span class="muted">Buscando producto…</span></div>`;
 
     if(navigator.vibrate){
       try{navigator.vibrate(80)}catch{}
@@ -282,7 +284,7 @@ barcodePhoto.onchange=async e=>{
 
   }catch(err){
     console.error("No se pudo leer el código desde la foto:",err);
-    barcodeResult.innerHTML=`<div class="result">
+    barcodeResultEl.innerHTML=`<div class="result">
       <b>No se ha podido leer el código de barras de esta foto.</b>
       <br><span class="muted">Haz otra foto más cerca, evitando reflejos y procurando que todas las barras estén enfocadas.</span>
     </div>`;
@@ -290,9 +292,9 @@ barcodePhoto.onchange=async e=>{
     try{await fileScanner?.clear()}catch{}
     setTimeout(()=>URL.revokeObjectURL(previewUrl),30000);
   }
-};
+});
 
-lookupBarcode.onclick=()=>lookupCode(barcodeInput.value.trim());
+lookupBarcodeEl.addEventListener("click",()=>lookupCode(barcodeInputEl.value.trim()));
 
 exportData.onclick=()=>{
   const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`fittrack-backup-${dayKey()}.json`;a.click();URL.revokeObjectURL(a.href)

@@ -83,3 +83,11 @@ La validación anti-falsos-positivos se realiza después de la detección y no m
 - Se muestra una vista previa de la foto.
 - El resultado se valida como EAN-13, EAN-8 o UPC-A antes de consultar Open Food Facts.
 - Si no puede leerse, se permite repetir la fotografía o introducir el código manualmente.
+
+
+## Cambio v11 - botón de cámara en iPhone
+- El botón ya no llama a `input.click()` mediante JavaScript.
+- Se usa un `<label for="barcodePhoto">` asociado directamente al input de archivo.
+- Esto hace que Safari/iPhone interprete la pulsación como una acción directa del usuario y abra correctamente la cámara/selector de fotos.
+- También se han sustituido las referencias implícitas por ID por `document.getElementById(...)`, mejorando compatibilidad con Safari.
+- `app.js` se carga como `app.js?v=11` para evitar caché antigua.
