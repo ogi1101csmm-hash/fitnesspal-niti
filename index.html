@@ -79,22 +79,23 @@
     <section id="scanner" class="view">
       <div class="card">
         <h2>Leer código de barras</h2>
-        <p class="muted">Haz una foto nítida del código de barras. La app analizará la imagen y extraerá el EAN/UPC.</p>
+        <p class="muted">
+          Haz una foto del código. La app probará varias lecturas sobre la imagen y,
+          como último recurso, OCR sobre los números impresos.
+        </p>
 
         <label for="barcodePhoto" class="buttonLike" style="display:block;width:100%;margin-top:10px">
           Sacar foto del código
         </label>
-        <input
-          id="barcodePhoto"
-          type="file"
-          accept="image/*"
-          capture="environment"
-          style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0"
-        />
+        <input id="barcodePhoto" type="file" accept="image/*" capture="environment"
+               style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />
 
         <div id="photoPreviewWrap" class="hidden" style="margin-top:14px">
-          <img id="barcodePhotoPreview" alt="Foto del código de barras" style="width:100%;max-height:420px;object-fit:contain;border-radius:16px;background:#030712" />
+          <img id="barcodePhotoPreview" alt="Foto del código"
+               style="width:100%;max-height:420px;object-fit:contain;border-radius:16px;background:#030712" />
         </div>
+
+        <div id="scanStatus" class="result hidden" style="margin-top:14px"></div>
 
         <div class="row gap" style="margin-top:14px">
           <input id="barcodeInput" placeholder="EAN / UPC" inputmode="numeric" />
@@ -102,9 +103,8 @@
         </div>
 
         <div id="barcodeResult"></div>
-
-        <!-- Se mantiene este contenedor oculto porque html5-qrcode lo utiliza internamente para analizar archivos. -->
         <div id="reader" style="display:none"></div>
+        <canvas id="barcodeWorkCanvas" style="display:none"></canvas>
       </div>
     </section>
 
@@ -216,6 +216,7 @@
   </dialog>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.7/html5-qrcode.min.js"></script>
-  <script src="app.js?v=11"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>

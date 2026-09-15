@@ -91,3 +91,15 @@ La validación anti-falsos-positivos se realiza después de la detección y no m
 - Esto hace que Safari/iPhone interprete la pulsación como una acción directa del usuario y abra correctamente la cámara/selector de fotos.
 - También se han sustituido las referencias implícitas por ID por `document.getElementById(...)`, mejorando compatibilidad con Safari.
 - `app.js` se carga como `app.js?v=11` para evitar caché antigua.
+
+
+## Cambio v12 - lector por foto con comprobaciones y OCR final
+Orden de lectura:
+1. BarcodeDetector nativo, si está disponible.
+2. html5-qrcode sobre la foto original.
+3. Reintento en escala de grises.
+4. Reintento con contraste alto.
+5. Reintento en blanco y negro.
+6. OCR con Tesseract.js como último recurso.
+
+Cualquier resultado debe superar la validación matemática EAN-13, EAN-8 o UPC-A.

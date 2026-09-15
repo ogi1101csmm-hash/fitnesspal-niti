@@ -211,25 +211,171 @@ function validEanOrUpc(raw){
 
   if(code.length===13){
     let sum=0;
-    for(let i=0;i<12;i++){
-      sum += Number(code[i]) * (i%2===0 ? 1 : 3);
-    }
+    for(let i=0;i<12;i++) sum += Number(code[i]) * (i%2===0 ? 1 : 3);
     return ((10-(sum%10))%10)===Number(code[12]);
   }
 
   if(code.length===8){
     let sum=0;
-    for(let i=0;i<7;i++){
-      sum += Number(code[i]) * (i%2===0 ? 3 : 1);
-    }
+    for(let i=0;i<7;i++) sum += Number(code[i]) * (i%2===0 ? 3 : 1);
     return ((10-(sum%10))%10)===Number(code[7]);
   }
 
-  if(code.length===12){
-    return validEanOrUpc("0"+code);
+  if(code.length===12) return validEanOrUpc("0"+code);
+  return false;
+}
+
+function candidateCodesFromText(text){
+  const raw=String(text||"");
+  const compact=raw.replace(/[^\d]/g,"");
+  const candidates=new Set();
+
+  for(const m of raw.matchAll(/\d(?:[\s\-]?\d){7,13}/g)){
+    const c=m[0].replace(/\D/g,"");
+    if([8,12,13,14].includes(c.length)) candidates.add(c);
   }
 
-  return false;
+  for(const len of [13,12,8]){
+    for(let i=0;i+len<=compact.length;i++) candidates.add(compact.slice(i,i+len));
+  }
+
+  return [...candidates].map(normalizeBarcode).filter(validEanOrUpc);
+}
+
+function setScanStatus(message){
+  const el=document.getElementById("scanStatus");
+  el.classList.remove("hidden");
+  el.innerHTML=message;
+}
+
+async function imageFileToBitmap(file){
+  if("createImageBitmap" in window){
+    try{return await createImageBitmap(file)}catch{}
+  }
+  return await new Promise((resolve,reject)=>{
+    const img=new Image();
+    const url=URL.createObjectURL(file);
+    img.onload=()=>{URL.revokeObjectURL(url);resolve(img)};
+    img.onerror=e=>{URL.revokeObjectURL(url);reject(e)};
+    img.src=url;
+  });
+}
+
+async function bitmapToVariantBlob(bitmap,mode){
+  const canvas=document.getElementById("barcodeWorkCanvas");
+  const ctx=canvas.getContext("2d",{willReadFrequently:true});
+  let sw=bitmap.width, sh=bitmap.height;
+  const maxDim=1800;
+  const scale=Math.min(1,maxDim/Math.max(sw,sh));
+  sw=Math.max(1,Math.round(sw*scale));
+  sh=Math.max(1,Math.round(sh*scale));
+  canvas.width=sw;
+  canvas.height=sh;
+  ctx.clearRect(0,0,sw,sh);
+  ctx.drawImage(bitmap,0,0,sw,sh);
+
+  if(["gray","contrast","threshold"].includes(mode)){
+    const im=ctx.getImageData(0,0,sw,sh);
+    const d=im.data;
+    for(let i=0;i<d.length;i+=4){
+      let g=Math.round(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]);
+      if(mode==="contrast") g=Math.max(0,Math.min(255,(g-128)*1.8+128));
+      if(mode==="threshold") g=g>155?255:0;
+      d[i]=d[i+1]=d[i+2]=g;
+    }
+    ctx.putImageData(im,0,0);
+  }
+
+  return await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",0.92));
+}
+
+async function tryHtml5QrFile(file){
+  if(typeof Html5Qrcode==="undefined") return null;
+  let scanner=null;
+  try{
+    scanner=new Html5Qrcode("reader");
+    const result=await scanner.scanFile(file,true);
+    const code=normalizeBarcode(result);
+    return validEanOrUpc(code)?code:null;
+  }catch{
+    return null;
+  }finally{
+    try{await scanner?.clear()}catch{}
+  }
+}
+
+async function tryBarcodeDetector(bitmap){
+  if(!("BarcodeDetector" in window)) return null;
+  try{
+    const supported=await BarcodeDetector.getSupportedFormats?.() || [];
+    const wanted=["ean_13","ean_8","upc_a","upc_e"].filter(x=>supported.includes(x));
+    if(!wanted.length) return null;
+    const detector=new BarcodeDetector({formats:wanted});
+    const found=await detector.detect(bitmap);
+    for(const item of found){
+      const code=normalizeBarcode(item.rawValue);
+      if(validEanOrUpc(code)) return code;
+    }
+  }catch{}
+  return null;
+}
+
+async function tryOcrForBarcode(bitmap){
+  if(typeof Tesseract==="undefined") return null;
+  setScanStatus("<b>6/6</b> Último intento: OCR de los números impresos…");
+
+  try{
+    const result=await Tesseract.recognize(bitmap,"eng",{
+      logger:m=>{
+        if(m.status==="recognizing text" && typeof m.progress==="number"){
+          setScanStatus(`<b>OCR:</b> ${Math.round(m.progress*100)}%`);
+        }
+      }
+    });
+
+    const candidates=candidateCodesFromText(result?.data?.text||"");
+    candidates.sort((a,b)=>{
+      const rank=x=>x.length===13?0:x.length===12?1:2;
+      return rank(a)-rank(b);
+    });
+    return candidates[0] || null;
+  }catch(e){
+    console.error("OCR error",e);
+    return null;
+  }
+}
+
+async function readBarcodeFromPhoto(file){
+  const bitmap=await imageFileToBitmap(file);
+
+  setScanStatus("<b>1/6</b> Detector nativo…");
+  let code=await tryBarcodeDetector(bitmap);
+  if(code) return code;
+
+  setScanStatus("<b>2/6</b> Foto original…");
+  code=await tryHtml5QrFile(file);
+  if(code) return code;
+
+  const variants=[
+    ["gray","escala de grises"],
+    ["contrast","contraste alto"],
+    ["threshold","blanco y negro"]
+  ];
+
+  let step=3;
+  for(const [mode,label] of variants){
+    setScanStatus(`<b>${step}/6</b> Probando ${label}…`);
+    const blob=await bitmapToVariantBlob(bitmap,mode);
+    const variantFile=new File([blob],`barcode-${mode}.jpg`,{type:"image/jpeg"});
+    code=await tryHtml5QrFile(variantFile);
+    if(code) return code;
+    step++;
+  }
+
+  code=await tryOcrForBarcode(bitmap);
+  if(code) return code;
+
+  return null;
 }
 
 const barcodePhotoEl=document.getElementById("barcodePhoto");
@@ -246,55 +392,44 @@ barcodePhotoEl.addEventListener("change",async e=>{
   const previewUrl=URL.createObjectURL(file);
   barcodePhotoPreviewEl.src=previewUrl;
   photoPreviewWrapEl.classList.remove("hidden");
-
-  barcodeResultEl.innerHTML='<div class="result">Analizando la foto…</div>';
-
-  if(typeof Html5Qrcode==="undefined"){
-    barcodeResultEl.innerHTML='<div class="result">No se pudo cargar el lector de códigos. Recarga la página con conexión a Internet.</div>';
-    return;
-  }
-
-  let fileScanner=null;
+  barcodeInputEl.value="";
+  barcodeResultEl.innerHTML="";
 
   try{
-    fileScanner=new Html5Qrcode("reader");
+    const code=await readBarcodeFromPhoto(file);
 
-    // scanFile analiza una foto estática. Es mucho más estable en iPhone
-    // que mantener un decodificador trabajando sobre vídeo en directo.
-    const decodedText=await fileScanner.scanFile(file,true);
-    const code=normalizeBarcode(decodedText);
-
-    if(!validEanOrUpc(code)){
-      barcodeInputEl.value=code;
-      barcodeResultEl.innerHTML=`<div class="result">
-        Se detectó <b>${esc(code||decodedText)}</b>, pero no supera la validación EAN/UPC.
-        <br><span class="muted">Haz otra foto más cerca, con el código recto y bien enfocado.</span>
-      </div>`;
+    if(!code){
+      setScanStatus(
+        "<b>No se ha obtenido un EAN/UPC válido.</b><br>" +
+        '<span class="muted">Repite la foto más cerca, con el código recto, enfocado y sin reflejos.</span>'
+      );
       return;
     }
 
     barcodeInputEl.value=code;
-    barcodeResultEl.innerHTML=`<div class="result"><b>Código detectado:</b> ${code}<br><span class="muted">Buscando producto…</span></div>`;
-
-    if(navigator.vibrate){
-      try{navigator.vibrate(80)}catch{}
-    }
-
+    setScanStatus(`<b>Código confirmado:</b> ${code}<br><span class="muted">Buscando producto…</span>`);
+    if(navigator.vibrate){try{navigator.vibrate(80)}catch{}}
     await lookupCode(code);
 
   }catch(err){
-    console.error("No se pudo leer el código desde la foto:",err);
-    barcodeResultEl.innerHTML=`<div class="result">
-      <b>No se ha podido leer el código de barras de esta foto.</b>
-      <br><span class="muted">Haz otra foto más cerca, evitando reflejos y procurando que todas las barras estén enfocadas.</span>
-    </div>`;
+    console.error(err);
+    setScanStatus(
+      "<b>No se pudo procesar la fotografía.</b><br>" +
+      `<span class="muted">${esc(err?.message||String(err))}</span>`
+    );
   }finally{
-    try{await fileScanner?.clear()}catch{}
     setTimeout(()=>URL.revokeObjectURL(previewUrl),30000);
   }
 });
 
-lookupBarcodeEl.addEventListener("click",()=>lookupCode(barcodeInputEl.value.trim()));
+lookupBarcodeEl.addEventListener("click",()=>{
+  const code=normalizeBarcode(barcodeInputEl.value);
+  if(!validEanOrUpc(code)){
+    barcodeResultEl.innerHTML='<div class="result">El código introducido no es un EAN/UPC válido.</div>';
+    return;
+  }
+  lookupCode(code);
+});
 
 exportData.onclick=()=>{
   const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`fittrack-backup-${dayKey()}.json`;a.click();URL.revokeObjectURL(a.href)
