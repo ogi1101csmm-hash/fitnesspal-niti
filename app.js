@@ -200,68 +200,73 @@ async function lookupCode(code){
     addScanned.onclick=()=>openFood(info);
   }catch(e){barcodeResult.innerHTML='<div class="result">Producto no encontrado. Puedes añadirlo manualmente desde el Diario.</div>'}
 }
-function isValidEan(code){
-  let s=String(code||"").replace(/\D/g,"");
-
-  // Normalización habitual de UPC-A.
-  if(s.length===12) s="0"+s;
-
-  if(![8,13].includes(s.length)) return false;
-
-  const body=s.slice(0,-1);
-  const expected=Number(s.slice(-1));
-  let sum=0;
-
-  if(s.length===13){
-    for(let i=0;i<12;i++){
-      sum += Number(body[i]) * (i%2===0 ? 1 : 3);
-    }
-  }else{
-    for(let i=0;i<7;i++){
-      sum += Number(body[i]) * (i%2===0 ? 3 : 1);
-    }
-  }
-
-  const check=(10-(sum%10))%10;
-  return check===expected;
+function normalizeBarcode(raw){
+  let code=String(raw||"").replace(/\D/g,"");
+  if(code.length===14 && code.startsWith("0")) code=code.slice(1);
+  return code;
 }
 
-let scanCandidates=new Map();
-let scanCommitted=false;
+function isValidBarcode(code){
+  const raw=normalizeBarcode(code);
 
-function registerScanCandidate(raw){
-  if(scanCommitted) return null;
-
-  let code=String(raw||"").replace(/\D/g,"");
-  if(!code) return null;
-
-  if(code.length===14 && code.startsWith("0")) code=code.slice(1);
-
-  if(![8,12,13].includes(code.length)) return null;
-  if(!isValidEan(code)) return null;
-
-  const now=Date.now();
-  const item=scanCandidates.get(code) || {count:0,last:now};
-  item.count++;
-  item.last=now;
-  scanCandidates.set(code,item);
-
-  // Eliminar lecturas viejas.
-  for(const [k,v] of scanCandidates){
-    if(now-v.last>1600) scanCandidates.delete(k);
+  // EAN-13
+  if(raw.length===13){
+    let sum=0;
+    for(let i=0;i<12;i++){
+      sum += Number(raw[i]) * (i%2===0 ? 1 : 3);
+    }
+    return ((10-(sum%10))%10)===Number(raw[12]);
   }
 
-  const active=[...scanCandidates.entries()]
-    .filter(([,v])=>now-v.last<=1100)
+  // EAN-8
+  if(raw.length===8){
+    let sum=0;
+    for(let i=0;i<7;i++){
+      sum += Number(raw[i]) * (i%2===0 ? 3 : 1);
+    }
+    return ((10-(sum%10))%10)===Number(raw[7]);
+  }
+
+  // UPC-A: validar como EAN-13 anteponiendo 0
+  if(raw.length===12){
+    return isValidBarcode("0"+raw);
+  }
+
+  return false;
+}
+
+let scanVotes=new Map();
+let scanLocked=false;
+
+function voteBarcode(raw){
+  if(scanLocked) return null;
+
+  const code=normalizeBarcode(raw);
+  if(!isValidBarcode(code)) return null;
+
+  const now=Date.now();
+  const item=scanVotes.get(code) || {count:0,last:now};
+  item.count++;
+  item.last=now;
+  scanVotes.set(code,item);
+
+  // Olvidar lecturas antiguas.
+  for(const [k,v] of scanVotes){
+    if(now-v.last>1800) scanVotes.delete(k);
+  }
+
+  const active=[...scanVotes.entries()]
+    .filter(([,v])=>now-v.last<=1400)
     .sort((a,b)=>b[1].count-a[1].count);
 
   if(!active.length) return null;
 
-  const total=active.reduce((n,[,v])=>n+v.count,0);
-  const [bestCode,best]=active[0];
+  const total=active.reduce((acc,[,v])=>acc+v.count,0);
+  const [bestCode,bestData]=active[0];
 
-  // Aceptar solo si el mismo código se ha leído repetidamente.
-  if(best.count>=5 && total>=5 && best.count/total>=0.75){
+  // Exigir varias lecturas coincidentes, pero sin tocar la configuración
+  // de cámara que ya funcionaba correctamente en iPhone.
+  if(bestData.count>=3 && total>=3 && bestData.count/total>=0.67){
     return bestCode;
   }
 
@@ -275,52 +280,43 @@ startScanner.onclick=async()=>{
       return;
     }
 
-    if(html5QrCode) await stopCamera();
+    if(html5QrCode){await stopCamera();}
 
-    scanCandidates=new Map();
-    scanCommitted=false;
+    scanVotes=new Map();
+    scanLocked=false;
     barcodeInput.value="";
-    barcodeResult.innerHTML='<div class="result">Leyendo… mantén el código quieto dentro del recuadro.</div>';
+    barcodeResult.innerHTML='<div class="result">Apunta al código de barras y mantenlo quieto un instante…</div>';
 
-    const formats=[];
-    if(typeof Html5QrcodeSupportedFormats!=="undefined"){
-      ["EAN_13","EAN_8","UPC_A","UPC_E"].forEach(name=>{
-        const value=Html5QrcodeSupportedFormats[name];
-        if(value!==undefined) formats.push(value);
-      });
-    }
-
-    html5QrCode=formats.length
-      ? new Html5Qrcode("reader",{formatsToSupport:formats,verbose:false})
-      : new Html5Qrcode("reader",{verbose:false});
+    // IMPORTANTE:
+    // Esta es la configuración de cámara de la v6, que sí abría correctamente
+    // en iPhone. No añadimos constraints avanzados al iniciar.
+    html5QrCode=new Html5Qrcode("reader");
 
     const config={
-      fps:30,
-      qrbox:(w,h)=>{
-        const width=Math.floor(w*0.94);
-        const height=Math.max(100,Math.min(165,Math.floor(h*0.26)));
+      fps:20,
+      qrbox:(viewfinderWidth,viewfinderHeight)=>{
+        const width=Math.floor(viewfinderWidth*0.92);
+        const height=Math.max(120,Math.floor(viewfinderHeight*0.36));
         return {width,height};
       },
-      disableFlip:false
+      aspectRatio:1.7778,
+      disableFlip:true,
+      experimentalFeatures:{useBarCodeDetectorIfSupported:false}
     };
 
     await html5QrCode.start(
-      {
-        facingMode:{ideal:"environment"},
-        width:{ideal:1920},
-        height:{ideal:1080}
-      },
+      {facingMode:"environment"},
       config,
       async(decodedText)=>{
-        const confirmed=registerScanCandidate(decodedText);
-        if(!confirmed || scanCommitted) return;
+        const confirmed=voteBarcode(decodedText);
+        if(!confirmed || scanLocked) return;
 
-        scanCommitted=true;
+        scanLocked=true;
         barcodeInput.value=confirmed;
         barcodeResult.innerHTML=`<div class="result"><b>Código confirmado:</b> ${confirmed}<br><span class="muted">Buscando producto…</span></div>`;
 
         if(navigator.vibrate){
-          try{navigator.vibrate(90)}catch{}
+          try{navigator.vibrate(80)}catch{}
         }
 
         await stopCamera();
@@ -329,9 +325,11 @@ startScanner.onclick=async()=>{
       ()=>{}
     );
 
+    // Solo después de arrancar, intentar enfoque continuo si existe.
+    // Si iOS no lo soporta, se ignora sin romper el lector.
     setTimeout(async()=>{
       try{
-        if(!html5QrCode || !html5QrCode.isScanning) return;
+        if(!html5QrCode || !html5QrCode.isScanning)return;
         const caps=html5QrCode.getRunningTrackCapabilities?.();
         if(caps?.focusMode?.includes?.("continuous")){
           await html5QrCode.applyVideoConstraints({
@@ -341,11 +339,11 @@ startScanner.onclick=async()=>{
       }catch(e){
         console.debug("Enfoque continuo no disponible",e);
       }
-    },700);
+    },800);
 
   }catch(e){
-    console.error(e);
-    alert("No se pudo iniciar correctamente el lector. Comprueba el permiso de cámara y vuelve a intentarlo.");
+    console.error("Error al iniciar escáner:",e);
+    alert("No se pudo iniciar el escáner. Cierra la cámara, recarga la página y vuelve a intentarlo.");
   }
 };
 
@@ -353,8 +351,18 @@ stopScanner.onclick=stopCamera;
 
 async function stopCamera(){
   if(html5QrCode){
-    try{if(html5QrCode.isScanning) await html5QrCode.stop()}catch{}
-    try{await html5QrCode.clear()}catch{}
+    try{
+      if(html5QrCode.isScanning) await html5QrCode.stop();
+    }catch(e){
+      console.debug("Error al detener cámara",e);
+    }
+
+    try{
+      await html5QrCode.clear();
+    }catch(e){
+      console.debug("Error al limpiar lector",e);
+    }
+
     html5QrCode=null;
   }
 }

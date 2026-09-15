@@ -55,10 +55,13 @@ Ejemplo:
 - Limpia y valida el código detectado antes de consultar Open Food Facts.
 
 
-## Cambio v7 - evitar códigos falsos
-- El lector queda restringido a EAN-13, EAN-8, UPC-A y UPC-E.
-- Se valida el dígito de control EAN/UPC.
-- Se exigen al menos 5 lecturas coincidentes antes de aceptar un código.
-- El código dominante debe representar al menos el 75 % de las lecturas recientes.
-- Se eliminan Code 39, Code 128 e ITF para evitar falsos positivos.
-- Se elimina el zoom forzado.
+## Cambio v8 - arranque estable en iPhone
+La v8 parte de la configuración de cámara de la v6, que sí abría correctamente en Safari/iPhone.
+La validación anti-falsos-positivos se realiza después de la detección y no modifica los constraints iniciales de la cámara.
+
+- Se mantiene `facingMode: environment` simple.
+- Se elimina la restricción de formatos del constructor que podía impedir el arranque.
+- Se eliminan constraints de resolución avanzados al iniciar.
+- Se valida el dígito de control EAN-13, EAN-8 y UPC-A.
+- Se requieren 3 lecturas válidas coincidentes antes de aceptar un código.
+- El enfoque continuo se intenta únicamente después de que la cámara ya esté funcionando.
