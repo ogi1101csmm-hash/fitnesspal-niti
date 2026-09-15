@@ -44,3 +44,12 @@ Ejemplo:
 - Referencia por 100 g: 250 kcal, 20 g proteína, 30 g carbohidratos, 8 g grasa.
 - Cantidad introducida: 60 g.
 - Resultado: 150 kcal, 12 g proteína, 18 g carbohidratos, 4.8 g grasa.
+
+
+## Cambio v6 - lector EAN/UPC
+- Fuerza los formatos EAN-13, EAN-8, UPC-A, UPC-E, Code 128, Code 39 e ITF.
+- Aumenta la frecuencia de lectura a 20 fps.
+- Amplía la zona efectiva de lectura.
+- Desactiva el detector nativo y utiliza el decodificador de la librería para mejorar compatibilidad en iPhone.
+- Intenta activar enfoque continuo y un ligero zoom cuando la cámara lo permite.
+- Limpia y valida el código detectado antes de consultar Open Food Facts.

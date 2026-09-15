@@ -206,25 +206,127 @@ startScanner.onclick=async()=>{
       alert("No se pudo cargar el lector de códigos. Comprueba la conexión a Internet y recarga la página.");
       return;
     }
+
     if(html5QrCode){await stopCamera();}
-    html5QrCode=new Html5Qrcode("reader");
-    const config={fps:10,qrbox:{width:280,height:160},aspectRatio:1.7778};
+
+    const formats = [];
+    if(typeof Html5QrcodeSupportedFormats!=="undefined"){
+      [
+        "EAN_13","EAN_8","UPC_A","UPC_E",
+        "CODE_128","CODE_39","ITF"
+      ].forEach(name=>{
+        if(Html5QrcodeSupportedFormats[name]!==undefined){
+          formats.push(Html5QrcodeSupportedFormats[name]);
+        }
+      });
+    }
+
+    html5QrCode = formats.length
+      ? new Html5Qrcode("reader", {formatsToSupport:formats, verbose:false})
+      : new Html5Qrcode("reader", {verbose:false});
+
+    const config={
+      fps:20,
+      qrbox:(viewfinderWidth,viewfinderHeight)=>{
+        const width=Math.floor(viewfinderWidth*0.92);
+        const height=Math.max(120,Math.floor(viewfinderHeight*0.36));
+        return {width,height};
+      },
+      aspectRatio:1.7778,
+      disableFlip:true,
+      experimentalFeatures:{useBarCodeDetectorIfSupported:false}
+    };
+
+    let handled=false;
+
     await html5QrCode.start(
-      {facingMode:"environment"},
+      {
+        facingMode:{exact:"environment"}
+      },
       config,
-      async decodedText=>{
-        barcodeInput.value=decodedText;
+      async(decodedText,decodedResult)=>{
+        if(handled)return;
+
+        const clean=String(decodedText||"").replace(/\D/g,"");
+        if(!clean)return;
+
+        // EAN/UPC válidos habituales: 8, 12, 13 o 14 dígitos.
+        if(![8,12,13,14].includes(clean.length))return;
+
+        handled=true;
+        barcodeInput.value=clean;
+
+        if(navigator.vibrate){
+          try{navigator.vibrate(80)}catch{}
+        }
+
         await stopCamera();
-        lookupCode(decodedText);
+        lookupCode(clean);
       },
       ()=>{}
     );
+
+    // En algunos iPhone el autoenfoque tarda unos instantes.
+    // Intentamos activar enfoque continuo y un ligero zoom si la cámara lo admite.
+    setTimeout(async()=>{
+      try{
+        if(!html5QrCode || !html5QrCode.isScanning)return;
+        const caps=html5QrCode.getRunningTrackCapabilities?.();
+        const settings={};
+
+        if(caps?.focusMode?.includes?.("continuous")){
+          settings.focusMode="continuous";
+        }
+
+        if(caps?.zoom){
+          const min=Number(caps.zoom.min ?? 1);
+          const max=Number(caps.zoom.max ?? 1);
+          settings.zoom=Math.min(max,Math.max(min,1.5));
+        }
+
+        if(Object.keys(settings).length){
+          await html5QrCode.applyVideoConstraints({advanced:[settings]});
+        }
+      }catch(e){
+        console.debug("No se pudieron aplicar mejoras de cámara",e);
+      }
+    },700);
+
   }catch(e){
     console.error(e);
-    alert("No se pudo abrir la cámara. En iPhone, abre la app desde Safari/GitHub Pages por HTTPS y permite el acceso a la cámara.");
+
+    // Si exact:"environment" falla, reintentamos con facingMode simple.
+    try{
+      if(html5QrCode){await stopCamera();}
+      html5QrCode=new Html5Qrcode("reader",{verbose:false});
+
+      await html5QrCode.start(
+        {facingMode:"environment"},
+        {
+          fps:20,
+          qrbox:(w,h)=>({width:Math.floor(w*0.92),height:Math.max(120,Math.floor(h*0.36))}),
+          aspectRatio:1.7778,
+          disableFlip:true,
+          experimentalFeatures:{useBarCodeDetectorIfSupported:false}
+        },
+        async decodedText=>{
+          const clean=String(decodedText||"").replace(/\D/g,"");
+          if(![8,12,13,14].includes(clean.length))return;
+          barcodeInput.value=clean;
+          await stopCamera();
+          lookupCode(clean);
+        },
+        ()=>{}
+      );
+    }catch(e2){
+      console.error(e2);
+      alert("No se pudo iniciar correctamente el lector. Comprueba el permiso de cámara y vuelve a intentarlo.");
+    }
   }
 };
+
 stopScanner.onclick=stopCamera;
+
 async function stopCamera(){
   if(html5QrCode){
     try{if(html5QrCode.isScanning)await html5QrCode.stop()}catch{}
