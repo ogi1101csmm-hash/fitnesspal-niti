@@ -7,7 +7,7 @@ const defaultState={
   fasting:{active:false,start:null,goalHours:16}
 };
 let state=loadState();
-let deferredPrompt=null, scannerStream=null, scannerTimer=null;
+let deferredPrompt=null, html5QrCode=null;
 
 function loadState(){
   try{return {...structuredClone(defaultState),...JSON.parse(localStorage.getItem(DB_KEY)||"{}")}}
@@ -68,11 +68,52 @@ document.querySelectorAll("[data-water]").forEach(b=>b.onclick=()=>{const k=dayK
 resetWater.onclick=()=>{state.water[dayKey()]=0;saveState();renderAll()};
 diaryDate.onchange=renderAll;
 
+let currentFoodBasis = null;
+
 function openFood(prefill={}){
-  foodMeal.value=prefill.meal||"Comida"; foodName.value=prefill.name||""; foodQty.value=prefill.qty||100; foodUnit.value=prefill.unit||"g";
-  foodCalories.value=prefill.calories??""; foodProtein.value=prefill.protein??0; foodCarbs.value=prefill.carbs??0; foodFat.value=prefill.fat??0;
+  foodMeal.value=prefill.meal||"Comida";
+  foodName.value=prefill.name||"";
+  foodQty.value=prefill.qty||100;
+  foodUnit.value=prefill.unit||"g";
+
+  currentFoodBasis = prefill.per100 ? {
+    qty: 100,
+    unit: prefill.unit || "g",
+    calories: +prefill.calories || 0,
+    protein: +prefill.protein || 0,
+    carbs: +prefill.carbs || 0,
+    fat: +prefill.fat || 0
+  } : null;
+
+  foodCalories.value=prefill.calories??"";
+  foodProtein.value=prefill.protein??0;
+  foodCarbs.value=prefill.carbs??0;
+  foodFat.value=prefill.fat??0;
+
+  recalcFoodFromQty();
   foodDialog.showModal();
 }
+
+function recalcFoodFromQty(){
+  if(!currentFoodBasis) return;
+  const qty = +foodQty.value || 0;
+  const factor = qty / currentFoodBasis.qty;
+
+  foodCalories.value = format1(currentFoodBasis.calories * factor);
+  foodProtein.value = format1(currentFoodBasis.protein * factor);
+  foodCarbs.value = format1(currentFoodBasis.carbs * factor);
+  foodFat.value = format1(currentFoodBasis.fat * factor);
+}
+
+foodQty.addEventListener("input", recalcFoodFromQty);
+
+foodUnit.addEventListener("change", ()=>{
+  if(currentFoodBasis && foodUnit.value !== currentFoodBasis.unit){
+    currentFoodBasis = null;
+  } else {
+    recalcFoodFromQty();
+  }
+});
 addFoodFab.onclick=()=>openFood();
 foodForm.addEventListener("submit",e=>{
   if(e.submitter?.value==="cancel")return;
@@ -154,22 +195,43 @@ async function lookupCode(code){
     const data=await res.json(); if(!data.product)throw new Error("No encontrado");
     const p=data.product,n=p.nutriments||{};
     const kcal=n["energy-kcal_100g"]??n["energy-kcal"]??0;
-    const info={name:p.product_name_es||p.product_name||"Producto",qty:100,unit:"g",calories:kcal,protein:n.proteins_100g||0,carbs:n.carbohydrates_100g||0,fat:n.fat_100g||0};
+    const info={name:p.product_name_es||p.product_name||"Producto",qty:100,unit:"g",calories:kcal,protein:n.proteins_100g||0,carbs:n.carbohydrates_100g||0,fat:n.fat_100g||0,per100:true};
     barcodeResult.innerHTML=`<div class="result"><b>${esc(info.name)}</b><p class="muted">Por 100 g: ${Math.round(info.calories)} kcal · P ${format1(info.protein)} · C ${format1(info.carbs)} · G ${format1(info.fat)}</p><button id="addScanned">Añadir al diario</button></div>`;
     addScanned.onclick=()=>openFood(info);
   }catch(e){barcodeResult.innerHTML='<div class="result">Producto no encontrado. Puedes añadirlo manualmente desde el Diario.</div>'}
 }
 startScanner.onclick=async()=>{
-  if(!("BarcodeDetector" in window)){alert("Este navegador no soporta BarcodeDetector. Introduce el código manualmente.");return}
   try{
-    scannerStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
-    camera.srcObject=scannerStream;camera.style.display="block";await camera.play();
-    const detector=new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e"]});
-    scannerTimer=setInterval(async()=>{try{const codes=await detector.detect(camera);if(codes[0]){barcodeInput.value=codes[0].rawValue;stopCamera();lookupCode(codes[0].rawValue)}}catch{}},700);
-  }catch{alert("No se pudo abrir la cámara. Revisa permisos y usa HTTPS.")}
+    if(typeof Html5Qrcode==="undefined"){
+      alert("No se pudo cargar el lector de códigos. Comprueba la conexión a Internet y recarga la página.");
+      return;
+    }
+    if(html5QrCode){await stopCamera();}
+    html5QrCode=new Html5Qrcode("reader");
+    const config={fps:10,qrbox:{width:280,height:160},aspectRatio:1.7778};
+    await html5QrCode.start(
+      {facingMode:"environment"},
+      config,
+      async decodedText=>{
+        barcodeInput.value=decodedText;
+        await stopCamera();
+        lookupCode(decodedText);
+      },
+      ()=>{}
+    );
+  }catch(e){
+    console.error(e);
+    alert("No se pudo abrir la cámara. En iPhone, abre la app desde Safari/GitHub Pages por HTTPS y permite el acceso a la cámara.");
+  }
 };
 stopScanner.onclick=stopCamera;
-function stopCamera(){if(scannerTimer)clearInterval(scannerTimer);scannerTimer=null;if(scannerStream)scannerStream.getTracks().forEach(t=>t.stop());scannerStream=null;camera.pause();camera.style.display="none"}
+async function stopCamera(){
+  if(html5QrCode){
+    try{if(html5QrCode.isScanning)await html5QrCode.stop()}catch{}
+    try{await html5QrCode.clear()}catch{}
+    html5QrCode=null;
+  }
+}
 
 exportData.onclick=()=>{
   const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`fittrack-backup-${dayKey()}.json`;a.click();URL.revokeObjectURL(a.href)
