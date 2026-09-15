@@ -103,3 +103,13 @@ Orden de lectura:
 6. OCR con Tesseract.js como último recurso.
 
 Cualquier resultado debe superar la validación matemática EAN-13, EAN-8 o UPC-A.
+
+
+## Cambio v13 - OCR reforzado para códigos de barras
+- El OCR ya no analiza únicamente la fotografía completa.
+- Se prueban varias zonas donde suelen aparecer las cifras del EAN.
+- Cada zona se procesa con contraste, umbral blanco/negro y contraste suave.
+- Tesseract queda limitado a los caracteres 0-9.
+- Se prueban varios modos de segmentación para detectar una línea de números.
+- Se admiten códigos impresos con espacios, por ejemplo `8 480000 105769`.
+- Todo resultado debe superar la validación matemática del dígito de control.

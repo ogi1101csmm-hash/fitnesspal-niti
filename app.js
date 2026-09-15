@@ -320,29 +320,116 @@ async function tryBarcodeDetector(bitmap){
   return null;
 }
 
+async function cropBitmapToBlob(bitmap, crop, mode="contrast"){
+  const canvas=document.getElementById("barcodeWorkCanvas");
+  const ctx=canvas.getContext("2d",{willReadFrequently:true});
+
+  const sx=Math.max(0,Math.round(bitmap.width*crop.x));
+  const sy=Math.max(0,Math.round(bitmap.height*crop.y));
+  const sw=Math.max(1,Math.round(bitmap.width*crop.w));
+  const sh=Math.max(1,Math.round(bitmap.height*crop.h));
+
+  const maxDim=1800;
+  const scale=Math.min(1,maxDim/Math.max(sw,sh));
+  const dw=Math.max(1,Math.round(sw*scale));
+  const dh=Math.max(1,Math.round(sh*scale));
+
+  canvas.width=dw;
+  canvas.height=dh;
+  ctx.clearRect(0,0,dw,dh);
+  ctx.drawImage(bitmap,sx,sy,sw,sh,0,0,dw,dh);
+
+  const im=ctx.getImageData(0,0,dw,dh);
+  const d=im.data;
+
+  for(let i=0;i<d.length;i+=4){
+    let g=Math.round(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]);
+
+    if(mode==="contrast"){
+      g=Math.max(0,Math.min(255,(g-128)*2.25+128));
+    }else if(mode==="threshold"){
+      g=g>145?255:0;
+    }else if(mode==="soft"){
+      g=Math.max(0,Math.min(255,(g-128)*1.45+128));
+    }
+
+    d[i]=d[i+1]=d[i+2]=g;
+  }
+
+  ctx.putImageData(im,0,0);
+
+  return await new Promise(resolve=>canvas.toBlob(resolve,"image/png"));
+}
+
+async function runDigitOcr(imageSource, psm="6"){
+  const result=await Tesseract.recognize(imageSource,"eng",{
+    logger:m=>{
+      if(m.status==="recognizing text" && typeof m.progress==="number"){
+        setScanStatus(`<b>OCR:</b> ${Math.round(m.progress*100)}%`);
+      }
+    },
+    tessedit_char_whitelist:"0123456789",
+    tessedit_pageseg_mode:psm,
+    preserve_interword_spaces:"1"
+  });
+
+  return String(result?.data?.text||"");
+}
+
 async function tryOcrForBarcode(bitmap){
   if(typeof Tesseract==="undefined") return null;
-  setScanStatus("<b>6/6</b> Último intento: OCR de los números impresos…");
 
-  try{
-    const result=await Tesseract.recognize(bitmap,"eng",{
-      logger:m=>{
-        if(m.status==="recognizing text" && typeof m.progress==="number"){
-          setScanStatus(`<b>OCR:</b> ${Math.round(m.progress*100)}%`);
+  setScanStatus("<b>6/6</b> OCR específico de los números del código…");
+
+  /*
+    En fotos de productos, los dígitos suelen estar justo debajo de las barras.
+    Probamos varias zonas de la foto, no solo la imagen completa.
+  */
+  const crops=[
+    {name:"centro",        x:0.15,y:0.25,w:0.70,h:0.55},
+    {name:"centro-bajo",   x:0.10,y:0.35,w:0.80,h:0.45},
+    {name:"zona inferior", x:0.05,y:0.45,w:0.90,h:0.45},
+    {name:"imagen completa",x:0.00,y:0.00,w:1.00,h:1.00}
+  ];
+
+  const modes=["contrast","threshold","soft"];
+
+  for(const crop of crops){
+    for(const mode of modes){
+      try{
+        setScanStatus(`<b>OCR:</b> analizando ${crop.name}…`);
+
+        const blob=await cropBitmapToBlob(bitmap,crop,mode);
+
+        // PSM 6: bloque uniforme. PSM 7: una línea.
+        for(const psm of ["7","6","11"]){
+          const text=await runDigitOcr(blob,psm);
+
+          /*
+            Casos habituales:
+              8 480000 105769
+              8480000105769
+              8 480000105769
+            candidateCodesFromText elimina espacios y valida el dígito EAN.
+          */
+          const candidates=candidateCodesFromText(text);
+
+          if(candidates.length){
+            candidates.sort((a,b)=>{
+              const rank=x=>x.length===13?0:x.length===12?1:2;
+              return rank(a)-rank(b);
+            });
+
+            return candidates[0];
+          }
         }
+      }catch(e){
+        console.debug("OCR parcial falló",crop.name,mode,e);
       }
-    });
-
-    const candidates=candidateCodesFromText(result?.data?.text||"");
-    candidates.sort((a,b)=>{
-      const rank=x=>x.length===13?0:x.length===12?1:2;
-      return rank(a)-rank(b);
-    });
-    return candidates[0] || null;
-  }catch(e){
-    console.error("OCR error",e);
-    return null;
+    }
   }
+
+  return null;
 }
 
 async function readBarcodeFromPhoto(file){
@@ -400,7 +487,7 @@ barcodePhotoEl.addEventListener("change",async e=>{
 
     if(!code){
       setScanStatus(
-        "<b>No se ha obtenido un EAN/UPC válido.</b><br>" +
+        "<b>No se ha podido confirmar el código automáticamente.</b><br>" +
         '<span class="muted">Repite la foto más cerca, con el código recto, enfocado y sin reflejos.</span>'
       );
       return;
