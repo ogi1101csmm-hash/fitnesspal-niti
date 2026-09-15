@@ -232,91 +232,67 @@ function validEanOrUpc(raw){
   return false;
 }
 
-let scanHistory=[];
-let scanAccepted=false;
+takeBarcodePhoto.onclick=()=>{
+  barcodePhoto.value="";
+  barcodePhoto.click();
+};
 
-function confirmRepeatedBarcode(raw){
-  const code=normalizeBarcode(raw);
-  if(!validEanOrUpc(code)) return null;
+barcodePhoto.onchange=async e=>{
+  const file=e.target.files?.[0];
+  if(!file) return;
 
-  const now=Date.now();
-  scanHistory=scanHistory.filter(x=>now-x.time<1800);
-  scanHistory.push({code,time:now});
+  const previewUrl=URL.createObjectURL(file);
+  barcodePhotoPreview.src=previewUrl;
+  photoPreviewWrap.classList.remove("hidden");
 
-  const same=scanHistory.filter(x=>x.code===code).length;
+  barcodeResult.innerHTML='<div class="result">Analizando la foto…</div>';
 
-  // La cámara de la v5 sí funcionaba en iPhone.
-  // Solo añadimos esta validación posterior: 3 lecturas iguales y EAN válido.
-  if(same>=3) return code;
-  return null;
-}
+  if(typeof Html5Qrcode==="undefined"){
+    barcodeResult.innerHTML='<div class="result">No se pudo cargar el lector de códigos. Recarga la página con conexión a Internet.</div>';
+    return;
+  }
 
-startScanner.onclick=async()=>{
+  let fileScanner=null;
+
   try{
-    if(typeof Html5Qrcode==="undefined"){
-      alert("No se pudo cargar el lector de códigos. Comprueba la conexión a Internet y recarga la página.");
+    fileScanner=new Html5Qrcode("reader");
+
+    // scanFile analiza una foto estática. Es mucho más estable en iPhone
+    // que mantener un decodificador trabajando sobre vídeo en directo.
+    const decodedText=await fileScanner.scanFile(file,true);
+    const code=normalizeBarcode(decodedText);
+
+    if(!validEanOrUpc(code)){
+      barcodeInput.value=code;
+      barcodeResult.innerHTML=`<div class="result">
+        Se detectó <b>${esc(code||decodedText)}</b>, pero no supera la validación EAN/UPC.
+        <br><span class="muted">Haz otra foto más cerca, con el código recto y bien enfocado.</span>
+      </div>`;
       return;
     }
 
-    if(html5QrCode){await stopCamera();}
+    barcodeInput.value=code;
+    barcodeResult.innerHTML=`<div class="result"><b>Código detectado:</b> ${code}<br><span class="muted">Buscando producto…</span></div>`;
 
-    scanHistory=[];
-    scanAccepted=false;
-    barcodeInput.value="";
-    barcodeResult.innerHTML='<div class="result">Cámara iniciada. Mantén el código centrado un instante.</div>';
+    if(navigator.vibrate){
+      try{navigator.vibrate(80)}catch{}
+    }
 
-    // IMPORTANTE: configuración idéntica a la v5,
-    // que fue la versión que sí abrió correctamente la cámara en tu iPhone.
-    html5QrCode=new Html5Qrcode("reader");
-    const config={
-      fps:10,
-      qrbox:{width:280,height:160},
-      aspectRatio:1.7778
-    };
+    await lookupCode(code);
 
-    await html5QrCode.start(
-      {facingMode:"environment"},
-      config,
-      async decodedText=>{
-        if(scanAccepted) return;
-
-        const confirmed=confirmRepeatedBarcode(decodedText);
-
-        if(!confirmed){
-          return;
-        }
-
-        scanAccepted=true;
-        barcodeInput.value=confirmed;
-        barcodeResult.innerHTML=`<div class="result"><b>Código confirmado:</b> ${confirmed}<br><span class="muted">Buscando producto…</span></div>`;
-
-        if(navigator.vibrate){
-          try{navigator.vibrate(80)}catch{}
-        }
-
-        await stopCamera();
-        lookupCode(confirmed);
-      },
-      ()=>{}
-    );
-
-  }catch(e){
-    console.error("Error real del escáner:",e);
-    const msg=(e && (e.message || e.name)) ? `${e.name||""} ${e.message||""}`.trim() : String(e);
-    barcodeResult.innerHTML=`<div class="result"><b>No se pudo iniciar la cámara.</b><br><span class="muted">${esc(msg)}</span></div>`;
-    alert("No se pudo iniciar la cámara. El detalle del error aparece debajo del buscador.");
+  }catch(err){
+    console.error("No se pudo leer el código desde la foto:",err);
+    barcodeResult.innerHTML=`<div class="result">
+      <b>No se ha podido leer el código de barras de esta foto.</b>
+      <br><span class="muted">Haz otra foto más cerca, evitando reflejos y procurando que todas las barras estén enfocadas.</span>
+    </div>`;
+  }finally{
+    try{await fileScanner?.clear()}catch{}
+    setTimeout(()=>URL.revokeObjectURL(previewUrl),30000);
   }
 };
 
-stopScanner.onclick=stopCamera;
-
-async function stopCamera(){
-  if(html5QrCode){
-    try{if(html5QrCode.isScanning)await html5QrCode.stop()}catch{}
-    try{await html5QrCode.clear()}catch{}
-    html5QrCode=null;
-  }
-}
+lookupBarcode.onclick=()=>lookupCode(barcodeInput.value.trim());
 
 exportData.onclick=()=>{
   const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`fittrack-backup-${dayKey()}.json`;a.click();URL.revokeObjectURL(a.href)

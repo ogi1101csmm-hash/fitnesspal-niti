@@ -73,3 +73,13 @@ La validación anti-falsos-positivos se realiza después de la detección y no m
 - Se requieren 3 lecturas iguales y un dígito de control EAN/UPC válido.
 - `app.js` se carga como `app.js?v=9` para evitar que Safari reutilice JavaScript antiguo.
 - Si el arranque falla, la app muestra el error técnico real debajo del buscador para poder diagnosticarlo.
+
+
+## Cambio v10 - lector mediante fotografía
+- Se elimina el escaneo continuo por cámara.
+- El usuario pulsa "Sacar foto del código".
+- En iPhone se abre directamente la cámara trasera mediante un input `capture="environment"`.
+- La fotografía se analiza posteriormente con `html5-qrcode.scanFile()`.
+- Se muestra una vista previa de la foto.
+- El resultado se valida como EAN-13, EAN-8 o UPC-A antes de consultar Open Food Facts.
+- Si no puede leerse, se permite repetir la fotografía o introducir el código manualmente.

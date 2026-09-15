@@ -78,18 +78,32 @@
 
     <section id="scanner" class="view">
       <div class="card">
-        <h2>Escáner de código de barras</h2>
-        <p class="muted">Coloca el código dentro del recuadro y mantenlo quieto un instante. La cámara usa la configuración estable de iPhone y valida el EAN antes de aceptarlo.</p>
-        <div id="reader" style="width:100%;margin:10px 0"></div>
-        <div class="row gap">
-          <button id="startScanner">Abrir cámara</button>
-          <button class="ghost" id="stopScanner">Cerrar</button>
+        <h2>Leer código de barras</h2>
+        <p class="muted">Haz una foto nítida del código de barras. La app analizará la imagen y extraerá el EAN/UPC.</p>
+
+        <input
+          id="barcodePhoto"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          hidden
+        />
+
+        <button id="takeBarcodePhoto">Sacar foto del código</button>
+
+        <div id="photoPreviewWrap" class="hidden" style="margin-top:14px">
+          <img id="barcodePhotoPreview" alt="Foto del código de barras" style="width:100%;max-height:420px;object-fit:contain;border-radius:16px;background:#030712" />
         </div>
-        <div class="row gap">
+
+        <div class="row gap" style="margin-top:14px">
           <input id="barcodeInput" placeholder="EAN / UPC" inputmode="numeric" />
           <button id="lookupBarcode">Buscar</button>
         </div>
+
         <div id="barcodeResult"></div>
+
+        <!-- Se mantiene este contenedor oculto porque html5-qrcode lo utiliza internamente para analizar archivos. -->
+        <div id="reader" style="display:none"></div>
       </div>
     </section>
 
@@ -201,6 +215,6 @@
   </dialog>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.7/html5-qrcode.min.js"></script>
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>
