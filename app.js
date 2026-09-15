@@ -200,6 +200,74 @@ async function lookupCode(code){
     addScanned.onclick=()=>openFood(info);
   }catch(e){barcodeResult.innerHTML='<div class="result">Producto no encontrado. Puedes añadirlo manualmente desde el Diario.</div>'}
 }
+function isValidEan(code){
+  let s=String(code||"").replace(/\D/g,"");
+
+  // Normalización habitual de UPC-A.
+  if(s.length===12) s="0"+s;
+
+  if(![8,13].includes(s.length)) return false;
+
+  const body=s.slice(0,-1);
+  const expected=Number(s.slice(-1));
+  let sum=0;
+
+  if(s.length===13){
+    for(let i=0;i<12;i++){
+      sum += Number(body[i]) * (i%2===0 ? 1 : 3);
+    }
+  }else{
+    for(let i=0;i<7;i++){
+      sum += Number(body[i]) * (i%2===0 ? 3 : 1);
+    }
+  }
+
+  const check=(10-(sum%10))%10;
+  return check===expected;
+}
+
+let scanCandidates=new Map();
+let scanCommitted=false;
+
+function registerScanCandidate(raw){
+  if(scanCommitted) return null;
+
+  let code=String(raw||"").replace(/\D/g,"");
+  if(!code) return null;
+
+  if(code.length===14 && code.startsWith("0")) code=code.slice(1);
+
+  if(![8,12,13].includes(code.length)) return null;
+  if(!isValidEan(code)) return null;
+
+  const now=Date.now();
+  const item=scanCandidates.get(code) || {count:0,last:now};
+  item.count++;
+  item.last=now;
+  scanCandidates.set(code,item);
+
+  // Eliminar lecturas viejas.
+  for(const [k,v] of scanCandidates){
+    if(now-v.last>1600) scanCandidates.delete(k);
+  }
+
+  const active=[...scanCandidates.entries()]
+    .filter(([,v])=>now-v.last<=1100)
+    .sort((a,b)=>b[1].count-a[1].count);
+
+  if(!active.length) return null;
+
+  const total=active.reduce((n,[,v])=>n+v.count,0);
+  const [bestCode,best]=active[0];
+
+  // Aceptar solo si el mismo código se ha leído repetidamente.
+  if(best.count>=5 && total>=5 && best.count/total>=0.75){
+    return bestCode;
+  }
+
+  return null;
+}
+
 startScanner.onclick=async()=>{
   try{
     if(typeof Html5Qrcode==="undefined"){
@@ -207,121 +275,77 @@ startScanner.onclick=async()=>{
       return;
     }
 
-    if(html5QrCode){await stopCamera();}
+    if(html5QrCode) await stopCamera();
 
-    const formats = [];
+    scanCandidates=new Map();
+    scanCommitted=false;
+    barcodeInput.value="";
+    barcodeResult.innerHTML='<div class="result">Leyendo… mantén el código quieto dentro del recuadro.</div>';
+
+    const formats=[];
     if(typeof Html5QrcodeSupportedFormats!=="undefined"){
-      [
-        "EAN_13","EAN_8","UPC_A","UPC_E",
-        "CODE_128","CODE_39","ITF"
-      ].forEach(name=>{
-        if(Html5QrcodeSupportedFormats[name]!==undefined){
-          formats.push(Html5QrcodeSupportedFormats[name]);
-        }
+      ["EAN_13","EAN_8","UPC_A","UPC_E"].forEach(name=>{
+        const value=Html5QrcodeSupportedFormats[name];
+        if(value!==undefined) formats.push(value);
       });
     }
 
-    html5QrCode = formats.length
-      ? new Html5Qrcode("reader", {formatsToSupport:formats, verbose:false})
-      : new Html5Qrcode("reader", {verbose:false});
+    html5QrCode=formats.length
+      ? new Html5Qrcode("reader",{formatsToSupport:formats,verbose:false})
+      : new Html5Qrcode("reader",{verbose:false});
 
     const config={
-      fps:20,
-      qrbox:(viewfinderWidth,viewfinderHeight)=>{
-        const width=Math.floor(viewfinderWidth*0.92);
-        const height=Math.max(120,Math.floor(viewfinderHeight*0.36));
+      fps:30,
+      qrbox:(w,h)=>{
+        const width=Math.floor(w*0.94);
+        const height=Math.max(100,Math.min(165,Math.floor(h*0.26)));
         return {width,height};
       },
-      aspectRatio:1.7778,
-      disableFlip:true,
-      experimentalFeatures:{useBarCodeDetectorIfSupported:false}
+      disableFlip:false
     };
-
-    let handled=false;
 
     await html5QrCode.start(
       {
-        facingMode:{exact:"environment"}
+        facingMode:{ideal:"environment"},
+        width:{ideal:1920},
+        height:{ideal:1080}
       },
       config,
-      async(decodedText,decodedResult)=>{
-        if(handled)return;
+      async(decodedText)=>{
+        const confirmed=registerScanCandidate(decodedText);
+        if(!confirmed || scanCommitted) return;
 
-        const clean=String(decodedText||"").replace(/\D/g,"");
-        if(!clean)return;
-
-        // EAN/UPC válidos habituales: 8, 12, 13 o 14 dígitos.
-        if(![8,12,13,14].includes(clean.length))return;
-
-        handled=true;
-        barcodeInput.value=clean;
+        scanCommitted=true;
+        barcodeInput.value=confirmed;
+        barcodeResult.innerHTML=`<div class="result"><b>Código confirmado:</b> ${confirmed}<br><span class="muted">Buscando producto…</span></div>`;
 
         if(navigator.vibrate){
-          try{navigator.vibrate(80)}catch{}
+          try{navigator.vibrate(90)}catch{}
         }
 
         await stopCamera();
-        lookupCode(clean);
+        lookupCode(confirmed);
       },
       ()=>{}
     );
 
-    // En algunos iPhone el autoenfoque tarda unos instantes.
-    // Intentamos activar enfoque continuo y un ligero zoom si la cámara lo admite.
     setTimeout(async()=>{
       try{
-        if(!html5QrCode || !html5QrCode.isScanning)return;
+        if(!html5QrCode || !html5QrCode.isScanning) return;
         const caps=html5QrCode.getRunningTrackCapabilities?.();
-        const settings={};
-
         if(caps?.focusMode?.includes?.("continuous")){
-          settings.focusMode="continuous";
-        }
-
-        if(caps?.zoom){
-          const min=Number(caps.zoom.min ?? 1);
-          const max=Number(caps.zoom.max ?? 1);
-          settings.zoom=Math.min(max,Math.max(min,1.5));
-        }
-
-        if(Object.keys(settings).length){
-          await html5QrCode.applyVideoConstraints({advanced:[settings]});
+          await html5QrCode.applyVideoConstraints({
+            advanced:[{focusMode:"continuous"}]
+          });
         }
       }catch(e){
-        console.debug("No se pudieron aplicar mejoras de cámara",e);
+        console.debug("Enfoque continuo no disponible",e);
       }
     },700);
 
   }catch(e){
     console.error(e);
-
-    // Si exact:"environment" falla, reintentamos con facingMode simple.
-    try{
-      if(html5QrCode){await stopCamera();}
-      html5QrCode=new Html5Qrcode("reader",{verbose:false});
-
-      await html5QrCode.start(
-        {facingMode:"environment"},
-        {
-          fps:20,
-          qrbox:(w,h)=>({width:Math.floor(w*0.92),height:Math.max(120,Math.floor(h*0.36))}),
-          aspectRatio:1.7778,
-          disableFlip:true,
-          experimentalFeatures:{useBarCodeDetectorIfSupported:false}
-        },
-        async decodedText=>{
-          const clean=String(decodedText||"").replace(/\D/g,"");
-          if(![8,12,13,14].includes(clean.length))return;
-          barcodeInput.value=clean;
-          await stopCamera();
-          lookupCode(clean);
-        },
-        ()=>{}
-      );
-    }catch(e2){
-      console.error(e2);
-      alert("No se pudo iniciar correctamente el lector. Comprueba el permiso de cámara y vuelve a intentarlo.");
-    }
+    alert("No se pudo iniciar correctamente el lector. Comprueba el permiso de cámara y vuelve a intentarlo.");
   }
 };
 
@@ -329,7 +353,7 @@ stopScanner.onclick=stopCamera;
 
 async function stopCamera(){
   if(html5QrCode){
-    try{if(html5QrCode.isScanning)await html5QrCode.stop()}catch{}
+    try{if(html5QrCode.isScanning) await html5QrCode.stop()}catch{}
     try{await html5QrCode.clear()}catch{}
     html5QrCode=null;
   }
